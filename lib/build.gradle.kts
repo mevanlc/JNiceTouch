@@ -10,6 +10,76 @@ plugins {
     `java-library`
 }
 
+val nativeSourceDir = rootProject.layout.projectDirectory.dir("native")
+val nativeOutputDir = layout.buildDirectory.dir("native")
+val nativeLibrary = nativeOutputDir.map { it.file("libjnicetouch.dylib") }
+val nativeAbiTest = nativeOutputDir.map { it.file("abi-test") }
+
+val prepareNativeOutput by tasks.registering(Exec::class) {
+    commandLine("mkdir", "-p", nativeOutputDir.get().asFile.absolutePath)
+}
+
+val compileNative by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Builds the universal macOS JNiceTouch native library."
+    onlyIf("requires macOS") { System.getProperty("os.name") == "Mac OS X" }
+    dependsOn(prepareNativeOutput)
+
+    inputs.file(nativeSourceDir.file("src/main/objective-cpp/JNiceTouch.mm"))
+    inputs.file(nativeSourceDir.file("include/jnicetouch.h"))
+    outputs.file(nativeLibrary)
+
+    commandLine(
+        "xcrun", "clang++",
+        "-std=c++20",
+        "-fobjc-arc",
+        "-fvisibility=hidden",
+        "-Wall", "-Wextra", "-Werror",
+        "-dynamiclib",
+        "-arch", "arm64",
+        "-arch", "x86_64",
+        "-mmacosx-version-min=12.0",
+        "-I${nativeSourceDir.dir("include").asFile.absolutePath}",
+        nativeSourceDir.file("src/main/objective-cpp/JNiceTouch.mm").asFile.absolutePath,
+        "-framework", "AppKit",
+        "-framework", "Foundation",
+        "-install_name", "@rpath/libjnicetouch.dylib",
+        "-o", nativeLibrary.get().asFile.absolutePath,
+    )
+}
+
+val compileNativeAbiTest by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Compiles the C ABI layout and discovery test."
+    onlyIf("requires macOS") { System.getProperty("os.name") == "Mac OS X" }
+    dependsOn(compileNative)
+
+    inputs.file(nativeSourceDir.file("src/test/c/abi_test.c"))
+    inputs.file(nativeSourceDir.file("include/jnicetouch.h"))
+    inputs.file(nativeLibrary)
+    outputs.file(nativeAbiTest)
+
+    commandLine(
+        "xcrun", "clang",
+        "-std=c11",
+        "-Wall", "-Wextra", "-Werror",
+        "-I${nativeSourceDir.dir("include").asFile.absolutePath}",
+        nativeSourceDir.file("src/test/c/abi_test.c").asFile.absolutePath,
+        "-L${nativeOutputDir.get().asFile.absolutePath}",
+        "-Wl,-rpath,${nativeOutputDir.get().asFile.absolutePath}",
+        "-ljnicetouch",
+        "-o", nativeAbiTest.get().asFile.absolutePath,
+    )
+}
+
+val testNative by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Runs the native C ABI test."
+    onlyIf("requires macOS") { System.getProperty("os.name") == "Mac OS X" }
+    dependsOn(compileNativeAbiTest)
+    commandLine(nativeAbiTest.get().asFile.absolutePath)
+}
+
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
@@ -36,4 +106,12 @@ java {
 tasks.named<Test>("test") {
     // Use TestNG for unit tests.
     useTestNG()
+    dependsOn(testNative)
+}
+
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(compileNative)
+    from(nativeLibrary) {
+        into("META-INF/native/macos-universal")
+    }
 }
