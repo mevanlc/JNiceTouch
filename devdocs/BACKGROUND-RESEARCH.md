@@ -14,6 +14,31 @@ Java trackpad event model
 Swing EDT and component routing
 ```
 
+## Implementation in this repository
+
+The JDK 22+ path recommended below is implemented in this repository:
+
+* [`JNiceTouch.mm`](../native/src/main/objective-cpp/JNiceTouch.mm) installs the
+  application-local AppKit monitor, copies scalar event fields, and feeds a
+  bounded queue without calling Java.
+* [`jnicetouch.h`](../native/include/jnicetouch.h) defines the versioned C ABI.
+  No Objective-C or Cocoa pointer type crosses it.
+* [`FfmNativeBridge.java`](../lib/src/main/java/io/github/mevanlc/jnicetouch/internal/FfmNativeBridge.java)
+  binds that ABI with the final JDK 22 Foreign Function and Memory API.
+* [`FfmMacTrackpadProvider.java`](../lib/src/main/java/io/github/mevanlc/jnicetouch/internal/FfmMacTrackpadProvider.java)
+  drains batches on a dedicated platform thread and schedules one EDT task per
+  batch. Component routing pins the initial deepest component through gesture
+  completion and scroll momentum.
+
+The ABI details, threading contract, and 128-byte v1 record layout are in
+[`C-ABI.md`](C-ABI.md). Automated tests cover native layout and discovery,
+queue coalescing and overflow cancellation, scroll/momentum sequence identity,
+FFM discovery downcalls, record decoding, and EDT component routing. Physical
+trackpad and multi-display behavior still require interactive hardware testing.
+
+The optional older-JDK JNI adapter and raw per-finger contacts discussed below
+are not part of the current JDK 22+ implementation scope.
+
 My concrete choices:
 
 | Option                                       | Verdict                                                                                 |
@@ -452,4 +477,3 @@ Finally, every critical action still needs a mouse, keyboard, or menu path. Appl
 [9]: https://developer.apple.com/documentation/appkit/nsevent/isdirectioninvertedfromdevice?language=objc "https://developer.apple.com/documentation/appkit/nsevent/isdirectioninvertedfromdevice?language=objc"
 [10]: https://github.com/openjdk/jdk/blob/master/src/java.desktop/macosx/native/include/jawt_md.h "jdk/src/java.desktop/macosx/native/include/jawt_md.h at master · openjdk/jdk · GitHub"
 [11]: https://github.com/mcourteaux/MultiTouch-Gestures-Java "GitHub - mcourteaux/MultiTouch-Gestures-Java: MultiTouch Gesture support for Java on OS X. · GitHub"
-

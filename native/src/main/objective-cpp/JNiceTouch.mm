@@ -183,7 +183,8 @@ struct GestureSequences {
             uint32_t phase,
             uint32_t momentumPhase) {
         uint64_t &active = by_kind[kind];
-        const bool phaseBegins = (phase & JNT_PHASE_BEGAN) != 0;
+        const bool phaseBegins =
+                (phase & (JNT_PHASE_BEGAN | JNT_PHASE_MAY_BEGIN)) != 0;
         const bool discrete = phase == JNT_PHASE_NONE &&
                               momentumPhase == JNT_PHASE_NONE;
         if (active == 0 || phaseBegins || discrete) {
@@ -462,7 +463,7 @@ void jnt_uninstall_v1(void) {
 int32_t jnt_perform_haptic_feedback_v1(
         uint32_t pattern,
         uint32_t performanceTime) {
-    if (pattern > static_cast<uint32_t>(NSHapticFeedbackPatternAlignment) ||
+    if (pattern > static_cast<uint32_t>(NSHapticFeedbackPatternLevelChange) ||
         performanceTime >
                 static_cast<uint32_t>(NSHapticFeedbackPerformanceTimeDrawCompleted)) {
         return JNT_STATUS_INVALID_ARGUMENT;
