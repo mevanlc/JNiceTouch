@@ -30,6 +30,7 @@ import java.util.Set;
  * @param nativePressureBehavior unmodified AppKit pressure behavior value
  * @param nativeFlags unmodified v1 event flag bits
  * @param flags normalized event flags
+ * @see ScrollDeltaMapping
  */
 public record MacTrackpadEvent(
         EventKind kind,

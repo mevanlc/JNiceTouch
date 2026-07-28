@@ -54,6 +54,12 @@ MacTrackpadProvider provider = JNiceTouch.open();
 Subscription subscription = provider.listen(canvas, (target, event) -> {
     // Always the Swing EDT. "target" remains pinned for the sequence.
     switch (event.kind()) {
+        case SCROLL -> {
+            ScrollDelta delta = ScrollDeltaMapping.CANVAS.map(
+                    event.deltaX(), event.deltaY());
+            panX += delta.x();
+            panY += delta.y();
+        }
         case MAGNIFY -> zoomBy(event.magnification());
         case ROTATE -> rotateBy(event.rotationDegrees());
         default -> { }
@@ -64,6 +70,11 @@ Subscription subscription = provider.listen(canvas, (target, event) -> {
 subscription.close();
 provider.close();
 ```
+
+`ScrollDeltaMapping.CANVAS` is intended for pan state rendered as
+`(screenX + panX, screenY - panY)`. `REVERSED` negates both AppKit deltas, while
+`RAW_APPKIT` preserves them. These mappings operate on values that already honor
+the user's macOS Natural Scrolling preference.
 
 Only one provider can own the process-wide AppKit monitor at a time. The
 overload `JNiceTouch.open(Set<Capability>)` can reduce the monitored event mask.
