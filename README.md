@@ -94,6 +94,27 @@ This builds both slices of the dylib, runs the C layout/discovery test, runs the
 Objective-C++ queue and sequence-policy tests, then runs the Java tests. The
 Java suite includes a real FFM downcall into the packaged dylib.
 
+GitHub Actions runs the build and tests on both ARM64 and Intel macOS runners
+for pull requests and pushes to `main`. Each run verifies that the published
+JAR contains both native architectures and uploads the JARs and test reports.
+
+## Versions and releases
+
+Development builds use `0.0.0-SNAPSHOT`. To build a release version locally:
+
+```text
+./gradlew clean build -PreleaseVersion=0.1.0
+```
+
+Pushing a stable tag such as `v0.1.0` runs both architecture checks, then signs
+and automatically publishes `io.github.mevanlc:jnicetouch:0.1.0` to Maven
+Central. The tag supplies the version without editing source files. Native ABI
+version 1 is independent of this artifact version.
+
+The one-time Central account, signing key, and GitHub secrets setup is in
+[`devdocs/RELEASING.md`](devdocs/RELEASING.md). Publishing requires an explicit
+release version and configured credentials; normal builds need neither.
+
 The ABI contract and evolution rules are documented in
 [`devdocs/C-ABI.md`](devdocs/C-ABI.md). The architectural investigation and
 scope decisions are in
@@ -106,3 +127,7 @@ per-finger contacts, use a global event tap, patch AWT, or include the optional
 JNI compatibility adapter for older JDKs. Component routing uses the public
 screen-bounds approximation described in the background research; exact
 native-window matching would require an isolated JDK-specific adapter.
+
+## License
+
+JNiceTouch is licensed under the [Apache License 2.0](LICENSE).

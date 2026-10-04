@@ -1,12 +1,112 @@
+import com.vanniktech.maven.publish.DeploymentValidation
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+import org.gradle.jvm.tasks.Jar
+import org.gradle.plugins.signing.Sign
+
 plugins {
     `java-library`
+    id("com.vanniktech.maven.publish") version "0.37.0"
 }
 
 group = "io.github.mevanlc"
-version = "0.1.0-SNAPSHOT"
+val releaseVersion = providers.gradleProperty("releaseVersion")
+releaseVersion.orNull?.let {
+    require(it.matches(Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)"))) {
+        "releaseVersion must be X.Y.Z without a prefix, qualifier, or leading zeros"
+    }
+}
+version = releaseVersion.orElse("0.0.0-SNAPSHOT").get()
 
 base {
     archivesName = "jnicetouch"
+}
+
+mavenPublishing {
+    coordinates(group.toString(), "jnicetouch", version.toString())
+    publishToMavenCentral(
+        automaticRelease = true,
+        validateDeployment = DeploymentValidation.PUBLISHED,
+    )
+    signAllPublications()
+    pom {
+        name = "JNiceTouch"
+        description = "macOS trackpad input for Swing applications on JDK 22 or newer"
+        url = "https://github.com/mevanlc/JNiceTouch"
+        inceptionYear = "2026"
+        licenses {
+            license {
+                name = "The Apache License, Version 2.0"
+                url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+                distribution = "repo"
+            }
+        }
+        developers {
+            developer {
+                id = "mevanlc"
+                name = "Michael Clark"
+                url = "https://github.com/mevanlc"
+            }
+        }
+        scm {
+            url = "https://github.com/mevanlc/JNiceTouch"
+            connection = "scm:git:https://github.com/mevanlc/JNiceTouch.git"
+            developerConnection = "scm:git:ssh://git@github.com/mevanlc/JNiceTouch.git"
+        }
+    }
+}
+
+abstract class VerifyReleasePublication : DefaultTask() {
+    @get:Input
+    abstract val releaseVersion: Property<String>
+
+    @get:Input
+    abstract val macOs: Property<Boolean>
+
+    @get:Input
+    abstract val credentialsPresent: MapProperty<String, Boolean>
+
+    @TaskAction
+    fun verify() {
+        check(macOs.get()) { "Maven Central publication requires macOS" }
+        check(releaseVersion.get().isNotBlank()) {
+            "Maven Central publication requires an explicit -PreleaseVersion=X.Y.Z"
+        }
+        val missing = credentialsPresent.get().filterValues { !it }.keys
+        check(missing.isEmpty()) {
+            "Maven Central publication is missing Gradle properties: ${missing.joinToString()}"
+        }
+    }
+}
+
+val verifyReleasePublication by tasks.registering(VerifyReleasePublication::class) {
+    group = "verification"
+    description = "Checks release version, platform, and credentials before Central publication."
+    releaseVersion.set(providers.gradleProperty("releaseVersion").orElse(""))
+    macOs.set(providers.systemProperty("os.name").map { it == "Mac OS X" })
+    for (name in listOf(
+        "mavenCentralUsername", "mavenCentralPassword",
+        "signingInMemoryKey", "signingInMemoryKeyPassword",
+    )) {
+        credentialsPresent.put(name, providers.gradleProperty(name).map { it.isNotBlank() }.orElse(false))
+    }
+}
+
+// Guard preparation too: the plugin uploads registered deployments when its build service closes.
+tasks.matching { it.name == "prepareMavenCentralPublishing" }.configureEach {
+    dependsOn(verifyReleasePublication)
+}
+tasks.withType<PublishToMavenRepository>().configureEach {
+    dependsOn(verifyReleasePublication)
+}
+tasks.withType<Sign>().configureEach {
+    mustRunAfter(verifyReleasePublication)
+}
+
+tasks.withType<Jar>().configureEach {
+    manifest.attributes("Implementation-Title" to "JNiceTouch", "Implementation-Version" to project.version)
+    from(rootProject.layout.projectDirectory.file("LICENSE")) {
+        into("META-INF")
+    }
 }
 
 val nativeSourceDir = rootProject.layout.projectDirectory.dir("native")
@@ -132,8 +232,12 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(22)
     }
-    withJavadocJar()
     withSourcesJar()
+}
+
+// The publishing plugin owns the Javadoc artifact; include it in ordinary builds too.
+tasks.named("assemble") {
+    dependsOn("plainJavadocJar")
 }
 
 tasks.withType<JavaCompile>().configureEach {
