@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-version:
+        description: Version supplied by the validated release tag
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    env:
+      RELEASE_VERSION: ${{ inputs.release-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '22'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Test release tag validation
+        run: bash .github/scripts/test-release-version.sh
+      - name: Build and test
+        shell: bash
+        run: |
+          args=()
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            args+=("-PreleaseVersion=$RELEASE_VERSION")
+          fi
+          ./gradlew --no-daemon clean build :lib:generatePomFileForMavenPublication "${args[@]}"
+      - name: Verify distributable artifacts
+        shell: bash
+        run: bash .github/scripts/verify-artifacts.sh "${RELEASE_VERSION:-0.0.0-SNAPSHOT}"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jnicetouch-${{ matrix.runner }}-${{ github.sha }}
+          path: |
+            lib/build/libs/*.jar
+            lib/build/publications/maven/pom-default.xml
+          if-no-files-found: error
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-reports-${{ matrix.runner }}-${{ github.sha }}
+          path: |
+            lib/build/reports/tests/
+            lib/build/test-results/
+          if-no-files-found: warn
